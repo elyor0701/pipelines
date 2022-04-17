@@ -1,16 +1,13 @@
 package main
 
 import (
-	"fmt"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 )
 
 func ExecutePipeline(jobs ...job) {
-	fmt.Println("ExecutePipeline :")
 	in := make(chan interface{}, 0)
 	wg := &sync.WaitGroup{}
 	for _, work := range jobs {
@@ -27,7 +24,6 @@ func ExecutePipeline(jobs ...job) {
 }
 
 func SingleHash(in, out chan interface{}) {
-	start := time.Now()
 	wg := &sync.WaitGroup{}
 	mu := &sync.Mutex{}
 	for data := range in {
@@ -45,8 +41,6 @@ func SingleHash(in, out chan interface{}) {
 		}(strconv.Itoa(data.(int)))
 	}
 	wg.Wait()
-	end := time.Since(start)
-	fmt.Println("SingleH", end)
 }
 
 // func SingleHash(in, out chan interface{}) {
