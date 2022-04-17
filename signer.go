@@ -2,11 +2,11 @@ package main
 
 import (
 	"fmt"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 func ExecutePipeline(jobs ...job) {
@@ -27,33 +27,73 @@ func ExecutePipeline(jobs ...job) {
 }
 
 func SingleHash(in, out chan interface{}) {
+	start := time.Now()
 	for data := range in {
-		fmt.Println(data, "SingleHash data", data)
+		dataCrc32Ch := SingleCrc32Helper(strconv.Itoa(data.(int)))
 		dataMd5 := DataSignerMd5(strconv.Itoa(data.(int)))
-		fmt.Println(data, "SingleHash md5(data)", dataMd5)
 		dataCrc32Md5 := DataSignerCrc32(dataMd5)
-		fmt.Println(data, "SingleHash crc32(md5(data))", dataCrc32Md5)
-		dataCrc32 := DataSignerCrc32(strconv.Itoa(data.(int)))
-		fmt.Println(data, "SingleHash crc32(data)", dataCrc32)
+		dataCrc32 := <-dataCrc32Ch
 		result := dataCrc32 + "~" + dataCrc32Md5
-		fmt.Println(data, "SingleHash result", result)
 		out <- result
-		runtime.Gosched()
 	}
+	end := time.Since(start)
+	fmt.Println("Single", end)
+}
+
+func SingleCrc32Helper(data string) chan string {
+	result := make(chan string, 1)
+	go func(out chan<- string) {
+		dataCrc32 := DataSignerCrc32(data)
+		out <- dataCrc32
+	}(result)
+	return result
+}
+
+// func MultiHash(in, out chan interface{}) {
+// 	for data := range in {
+// 		var result string = ""
+// 		for th := 0; th < 6; th++ {
+// 			addData := strconv.Itoa(th) + data.(string)
+// 			thResult := DataSignerCrc32(addData)
+// 			result += thResult
+// 		}
+// 		out <- result
+// 	}
+// }
+
+type ThWorker struct {
+	id     int
+	result string
 }
 
 func MultiHash(in, out chan interface{}) {
+	start := time.Now()
+	inWorker := make(chan ThWorker, 5)
+	outWorker := make(chan ThWorker, 5)
+	for i := 0; i < 6; i++ {
+		go func(in, out chan ThWorker) {
+			for input := range in {
+				dataCrc32 := DataSignerCrc32(input.result)
+				out <- ThWorker{input.id, dataCrc32}
+			}
+		}(inWorker, outWorker)
+	}
 	for data := range in {
-		var result string = ""
+		resultSlice := make([]string, 6)
 		for th := 0; th < 6; th++ {
 			addData := strconv.Itoa(th) + data.(string)
-			thResult := DataSignerCrc32(addData)
-			fmt.Println(data, "MultiHash: crc32(th + step1)", th, thResult)
-			result += thResult
+			inWorker <- ThWorker{th, addData}
 		}
-		fmt.Println(data, "MultiHash: result", result)
+		for i := 0; i < 6; i++ {
+			solvedData := <-outWorker
+			resultSlice[solvedData.id] = solvedData.result
+		}
+		result := strings.Join(resultSlice, "")
 		out <- result
 	}
+	close(inWorker)
+	end := time.Since(start)
+	fmt.Println("Multihash", end)
 }
 
 func CombineResults(in, out chan interface{}) {
@@ -63,6 +103,5 @@ func CombineResults(in, out chan interface{}) {
 	}
 	sort.Strings(data)
 	result := strings.Join(data, "_")
-	fmt.Println("CombineResult", result)
 	out <- result
 }
