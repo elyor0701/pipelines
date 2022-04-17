@@ -90,30 +90,44 @@ type ThWorker struct {
 }
 
 func MultiHash(in, out chan interface{}) {
-	inWorker := make(chan ThWorker, 5)
-	outWorker := make(chan ThWorker, 5)
-	for i := 0; i < 6; i++ {
-		go func(in, out chan ThWorker) {
-			for input := range in {
-				dataCrc32 := DataSignerCrc32(input.result)
-				out <- ThWorker{input.id, dataCrc32}
-			}
-		}(inWorker, outWorker)
-	}
+	// inWorker := make(chan ThWorker, 50)
+	// outWorker := make(chan ThWorker, 50)
+	// for i := 0; i < 20; i++ {
+	// 	go func(in, out chan ThWorker) {
+	// 		for input := range in {
+	// 			dataCrc32 := DataSignerCrc32(input.result)
+	// 			out <- ThWorker{input.id, dataCrc32}
+	// 		}
+	// 	}(inWorker, outWorker)
+	// }
+	wg := &sync.WaitGroup{}
 	for data := range in {
-		resultSlice := make([]string, 6)
-		for th := 0; th < 6; th++ {
-			addData := strconv.Itoa(th) + data.(string)
-			inWorker <- ThWorker{th, addData}
-		}
-		for i := 0; i < 6; i++ {
-			solvedData := <-outWorker
-			resultSlice[solvedData.id] = solvedData.result
-		}
-		result := strings.Join(resultSlice, "")
-		out <- result
+		wg.Add(1)
+		go func(data string) {
+			defer wg.Done()
+			inWorker := make(chan ThWorker, 5)
+			defer close(inWorker)
+			outWorker := make(chan ThWorker, 5)
+			resultSlice := make([]string, 6)
+			for th := 0; th < 6; th++ {
+				go func(in, out chan ThWorker) { // should change it
+					for input := range in {
+						dataCrc32 := DataSignerCrc32(input.result)
+						out <- ThWorker{input.id, dataCrc32}
+					}
+				}(inWorker, outWorker)
+				addData := strconv.Itoa(th) + data
+				inWorker <- ThWorker{th, addData}
+			}
+			for i := 0; i < 6; i++ {
+				solvedData := <-outWorker
+				resultSlice[solvedData.id] = solvedData.result
+			}
+			result := strings.Join(resultSlice, "")
+			out <- result
+		}(data.(string))
 	}
-	close(inWorker)
+	wg.Wait()
 }
 
 func CombineResults(in, out chan interface{}) {
